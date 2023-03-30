@@ -2,6 +2,16 @@
 
 #include <iostream>
 
-int main() {
-	std::cout << "hello world\n";
+int main()
+{
+	Jobby::Initialize();
+
+	Jobby::Execute([] { /*do stuff 1*/ });
+	Jobby::Execute([] { /*do stuff 2*/ });
+	Jobby::Wait();
+
+	while (Jobby::IsBusy())
+	{
+		// do stuff
+	}
 }

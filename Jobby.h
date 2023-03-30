@@ -2,6 +2,9 @@
 
 #include <functional>
 
+// References:
+// - https://wickedengine.net/2018/11/24/simple-job-system-using-standard-c/
+
 namespace Jobby
 {
 	struct JobDispatchArgs
@@ -10,8 +13,21 @@ namespace Jobby
 		uint32_t groupIndex;
 	};
 
-	void Initialize();
-	void Execute(); // Adds a function to the job queue
-	void Dispatch(); // Cuts a function into multiple jobs that are added to the job queue
-	void ParallelFor();
+	// Create the internal resources such as worker threads, etc. Call it once when initializing the application.
+    void Initialize();
+ 
+    // Add a job to execute asynchronously. Any idle thread will execute this job.
+    void Execute(const std::function<void()>& job);
+ 
+    // Divide a job into multiple jobs and execute in parallel.
+    //  jobCount    : how many jobs to generate for this task.
+    //  groupSize   : how many jobs to execute per thread. Jobs inside a group execute serially. It might be worth to increase for small jobs
+    //  func        : receives a JobDispatchArgs as parameter
+    void Dispatch(uint32_t jobCount, uint32_t groupSize, const std::function<void(JobDispatchArgs)>& job);
+ 
+    // Check if any threads are working currently or not
+    bool IsBusy();
+ 
+    // Wait until all threads become idle
+    void Wait();
 }

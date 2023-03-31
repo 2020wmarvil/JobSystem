@@ -76,6 +76,7 @@ namespace Jobby
                     else
                     {
                         std::unique_lock<std::mutex> lock(wakeMutex);
+                        wakeCondition.wait(lock); // sleep while no job
                     }
                 }
 
@@ -85,11 +86,69 @@ namespace Jobby
         }
     }
 
-    void Execute(const std::function<void()>& job)
+    // This little helper function will not let the system to be deadlocked while the main thread is waiting for something
+    inline void Poll()
     {
+        wakeCondition.notify_one();
+        std::this_thread::yield(); // allow the main thread to be captured for a job
     }
 
-    void Dispatch(uint32_t jobCount, uint32_t groupSize, const std::function<void(JobDispatchArgs)>& job) {}
-    bool IsBusy() { return false; }
-    void Wait() {}
+    void Execute(const std::function<void()>& job)
+    {
+        currentLabel += 1;
+        while (!jobPool.push_back(job))
+        {
+            Poll();
+        }
+
+        wakeCondition.notify_one(); // wake one thread
+    }
+
+    void Dispatch(uint32_t jobCount, uint32_t groupSize, const std::function<void(JobDispatchArgs)>& job)
+    {
+        if (jobCount == 0 || groupSize == 0) return;
+
+        // Calculate the amount of job groups to dispatch (overestimate, or "ceil"):
+        const uint32_t groupCount = (jobCount + groupSize - 1) / groupSize;
+
+        currentLabel += groupCount;
+
+        for (uint32_t groupIndex = 0; groupIndex < groupCount; groupIndex++)
+        {
+            const auto& jobGroup = [jobCount, groupSize, job, groupIndex]() {
+                const uint32_t groupJobOffset = groupIndex * groupSize;
+                const uint32_t groupJobEnd = std::min(groupJobOffset + groupSize, jobCount);
+
+                JobDispatchArgs args;
+                args.groupIndex = groupIndex;
+
+                for (uint32_t i = groupJobOffset; i < groupJobEnd; i++)
+                {
+                    args.jobIndex = i;
+                    job(args);
+                }
+            };
+
+            while (!jobPool.push_back(jobGroup))
+            {
+                Poll();
+            }
+
+            wakeCondition.notify_one();
+        }
+    }
+
+    bool IsBusy()
+    {
+        // Whenever the main thread label is not reached by the workers, it indicates that some worker is still alive
+        return finishedLabel.load() < currentLabel;
+    }
+
+    void Wait()
+    {
+        while (IsBusy())
+        {
+            Poll();
+        }
+    }
 }
